@@ -2525,7 +2525,7 @@ window.BLISS_BURGER_SUPABASE_CONFIG = {
 </script>
 
 <!-- SUPABASE DEPLOYMENT SQL EMBEDDED FOR THIS BUILD -->
-<script type="text/plain" id="hawassaSupabaseDeploymentSQL">-- HAWASSA RESTAURANT ERP - SUPABASE DEPLOYMENT
+<script type="text/plain" id="hawassaSupabaseDeploymentSQL">-- BURGER OF BLISS ERP - SUPABASE DEPLOYMENT
 -- Run this in Supabase SQL Editor > New query
 
 create table if not exists public.erp_records (
@@ -3073,6 +3073,8 @@ let _supabaseClient = null;
 let _databaseReady = false;
 let _openDBPromise = null;
 let _dbInstance = null;
+let _supabaseRealtimeChannel = null;
+let _realtimeRefreshTimer = null;
 const STORES = {
   settings:'settings', users:'users', roles:'roles', employees:'employees', attendance:'attendance',
   menuCategories:'menuCategories', menuItems:'menuItems', ingredients:'ingredients', inventory:'inventory',
@@ -3121,13 +3123,41 @@ async function initSupabase(){
     _supabaseClient=window.supabase.createClient(window.BLISS_BURGER_SUPABASE_CONFIG.url,window.BLISS_BURGER_SUPABASE_CONFIG.anonKey);
     const {error}=await _supabaseClient.from('erp_records').select('id').limit(1);
     if(error) throw error;
-    _useSupabase=true; _dbInstance=_supabaseClient; _databaseReady=true;
-    console.log('Supabase connected.');
+    _useSupabase=true; _dbInstance=_supabaseClient; window._supabaseClient=_supabaseClient; _databaseReady=true;
+    setupSupabaseRealtime();
+    console.log('Supabase connected with realtime enabled.');
     return _supabaseClient;
   }catch(error){
     _useSupabase=false; _dbInstance=null; _databaseReady=true;
     console.warn('Supabase is not ready yet; using the ERP local database so no ERP page is blocked.',error);
     return null;
+  }
+}
+
+
+function setupSupabaseRealtime(){
+  if(!_supabaseClient || !_useSupabase || _supabaseRealtimeChannel) return;
+  try{
+    _supabaseRealtimeChannel=_supabaseClient
+      .channel('bliss-erp-realtime')
+      .on('postgres_changes',{event:'*',schema:'public',table:'erp_records'},payload=>{
+        const storeName=String(payload?.new?.store_name || payload?.old?.store_name || '');
+        if(storeName) _dbAllInvalidate(storeName);
+        window.dispatchEvent(new CustomEvent('bliss:realtime',{detail:{storeName,event:payload?.eventType||'CHANGE',payload}}));
+        clearTimeout(_realtimeRefreshTimer);
+        _realtimeRefreshTimer=setTimeout(()=>{
+          try{
+            if(currentPage==='waiter_order') renderWaiterOnlineInbox?.().catch(()=>{});
+            else if(['dashboard','orders','kitchen','delivery'].includes(currentPage)) renderPage();
+          }catch(e){ console.warn('Realtime UI refresh failed',e); }
+        },120);
+      })
+      .subscribe((status)=>{
+        console.log('Burger of Bliss realtime:',status);
+      });
+  }catch(e){
+    console.warn('Supabase Realtime setup failed; normal database sync remains available.',e);
+    _supabaseRealtimeChannel=null;
   }
 }
 
@@ -3274,6 +3304,7 @@ async function uploadDisplayMediaToSupabase(file,id){
 window._useSupabase=true;
 window._supabaseClient=null;
 window.initSupabase=initSupabase;
+window.setupSupabaseRealtime=setupSupabaseRealtime;
 
 /* ========== erp_part3_ethiopian_calendar.js ========== */
 /* ============================================================
@@ -4014,7 +4045,10 @@ async function renderPage() {
 function showSupabaseSetupHelp(){
   const sql = `create table if not exists public.erp_records (\n  store_name text not null,\n  id text not null,\n  data jsonb not null,\n  updated_at timestamptz not null default now(),\n  primary key (store_name, id)\n);\n
 alter table public.erp_records enable row level security;\n
-grant select, insert, update, delete on public.erp_records to anon;\n\ncreate policy "ERP anon select" on public.erp_records for select to anon using (true);\ncreate policy "ERP anon insert" on public.erp_records for insert to anon with check (true);\ncreate policy "ERP anon update" on public.erp_records for update to anon using (true) with check (true);\ncreate policy "ERP anon delete" on public.erp_records for delete to anon using (true);`;
+grant select, insert, update, delete on public.erp_records to anon;\n\ncreate policy "ERP anon select" on public.erp_records for select to anon using (true);\ncreate policy "ERP anon insert" on public.erp_records for insert to anon with check (true);\ncreate policy "ERP anon update" on public.erp_records for update to anon using (true) with check (true);\ncreate policy "ERP anon delete" on public.erp_records for delete to anon using (true);
+
+-- Enable Supabase Realtime for live POS / waiter / dashboard updates
+alter publication supabase_realtime add table public.erp_records;`;
   showModal('Supabase setup required', `<p>Open Supabase → SQL Editor → New query, paste the SQL below, and Run.</p><textarea id="supabase-setup-sql" style="width:100%;min-height:300px;font:12px monospace">${sql.replace(/</g,'&lt;')}</textarea><div style="margin-top:10px;color:#64748b;font-size:.8rem">This is required because the browser key cannot create database tables by itself.</div>`, `<button class="btn btn-primary" onclick="navigator.clipboard?.writeText(document.getElementById('supabase-setup-sql').value);toast('SQL copied','success')">Copy SQL</button><button class="btn btn-secondary" onclick="closeModal()">Close</button>`);
 }
 
@@ -6162,6 +6196,13 @@ let _onlineOrderUnsubscribe=null;
 let _onlineWaiterPollTimer=null;
 function startOnlineOrderListener(){
   stopOnlineOrderListener();
+  if(_supabaseClient && _useSupabase){
+    try{
+      _onlineOrderUnsubscribe=()=>{};
+      if(currentPage==='waiter_order') renderWaiterOnlineInbox().catch(console.warn);
+      return;
+    }catch(e){ console.warn('Realtime waiter listener unavailable; using fallback polling.',e); }
+  }
   _onlineWaiterPollTimer=setInterval(()=>{
     if(currentPage==='waiter_order') renderWaiterOnlineInbox().catch(console.warn);
   },2500);
