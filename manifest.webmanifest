@@ -1,24 +1,15 @@
 {
-  "name": "Burger of Bliss",
+  "name": "Burger of Bliss ERP",
   "short_name": "Burger Bliss",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#111111",
-  "theme_color": "#111111",
-  "description": "Burger of Bliss restaurant ERP and POS",
+  "orientation": "any",
+  "background_color": "#f5f6fa",
+  "theme_color": "#f5f6fa",
+  "description": "Burger of Bliss restaurant ERP, POS and customer menu.",
   "icons": [
-    {
-      "src": "./icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
+    {"src":"./icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+    {"src":"./icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
   ]
 }
